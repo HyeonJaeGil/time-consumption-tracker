@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "time-consumption-tracker"
+version = "0.1.0"
+description = "Global time consumption tracker with context manager API."
+requires-python = ">=3.8"
+authors = [{ name = "Hyeonjae Gil" }]
+
+dependencies = []
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

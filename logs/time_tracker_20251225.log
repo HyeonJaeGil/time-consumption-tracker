@@ -1,0 +1,49 @@
+2025-12-25 00:28:36 | INFO | OK | task=startup | elapsed=55.010 ms
+2025-12-25 00:28:36 | INFO | OK | task=load_data | elapsed=125.024 ms
+2025-12-25 00:28:36 | INFO | OK | task=load_data | elapsed=82.236 ms
+2025-12-25 00:28:36 | INFO | OK | task=train | elapsed=200.803 ms
+2025-12-25 00:28:36 | Time Consumption Summary
+------------------------
+TASK                              COUNT           TOTAL             AVG             MIN             MAX            LAST
+-----------------------------------------------------------------------------------------------------------------------
+load_data                             2      207.260 ms      103.630 ms       82.236 ms      125.024 ms       82.236 ms
+train                                 1      200.803 ms      200.803 ms      200.803 ms      200.803 ms      200.803 ms
+startup                               1       55.010 ms       55.010 ms       55.010 ms       55.010 ms       55.010 ms
+-----------------------------------------------------------------------------------------------------------------------
+TOTAL (all tasks)                            463.074 ms
+2025-12-25 00:36:15 | INFO | OK | task=startup | elapsed=55.009 ms
+2025-12-25 00:36:16 | INFO | OK | task=load_data | elapsed=121.708 ms
+2025-12-25 00:36:16 | INFO | OK | task=load_data | elapsed=83.954 ms
+2025-12-25 00:36:16 | INFO | OK | task=train | elapsed=203.695 ms
+2025-12-25 00:36:16 | Time Consumption Summary
+------------------------
+TASK                              COUNT           TOTAL             AVG             MIN             MAX            LAST
+-----------------------------------------------------------------------------------------------------------------------
+load_data                             2      205.662 ms      102.831 ms       83.954 ms      121.708 ms       83.954 ms
+train                                 1      203.695 ms      203.695 ms      203.695 ms      203.695 ms      203.695 ms
+startup                               1       55.009 ms       55.009 ms       55.009 ms       55.009 ms       55.009 ms
+-----------------------------------------------------------------------------------------------------------------------
+TOTAL (all tasks)                            464.366 ms
+2025-12-25 00:37:09 | INFO | OK | task=startup | elapsed=55.009 ms
+2025-12-25 00:37:09 | INFO | OK | task=load_data | elapsed=125.020 ms
+2025-12-25 00:37:09 | INFO | OK | task=load_data | elapsed=84.470 ms
+2025-12-25 00:37:09 | INFO | OK | task=train | elapsed=203.439 ms
+2025-12-25 00:37:35 | INFO | OK | task=startup | elapsed=55.010 ms
+2025-12-25 00:37:35 | INFO | OK | task=load_data | elapsed=125.019 ms
+2025-12-25 00:37:35 | INFO | OK | task=load_data | elapsed=80.399 ms
+2025-12-25 00:37:35 | INFO | OK | task=train | elapsed=203.202 ms
+2025-12-25 00:37:35 | INFO | OK | task=in_another_file | elapsed=154.725 ms
+2025-12-25 00:37:36 | INFO | OK | task=in_another_file | elapsed=155.040 ms
+2025-12-25 00:37:36 | INFO | OK | task=in_another_file | elapsed=152.308 ms
+2025-12-25 00:37:36 | INFO | OK | task=in_another_file | elapsed=151.835 ms
+2025-12-25 00:37:36 | INFO | OK | task=in_another_file | elapsed=153.198 ms
+2025-12-25 00:37:36 | Time Consumption Summary
+------------------------
+TASK                              COUNT           TOTAL             AVG             MIN             MAX            LAST
+-----------------------------------------------------------------------------------------------------------------------
+in_another_file                       5      767.107 ms      153.421 ms      151.835 ms      155.040 ms      153.198 ms
+load_data                             2      205.418 ms      102.709 ms       80.399 ms      125.019 ms       80.399 ms
+train                                 1      203.202 ms      203.202 ms      203.202 ms      203.202 ms      203.202 ms
+startup                               1       55.010 ms       55.010 ms       55.010 ms       55.010 ms       55.010 ms
+-----------------------------------------------------------------------------------------------------------------------
+TOTAL (all tasks)                           1230.737 ms

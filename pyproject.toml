@@ -9,7 +9,7 @@ description = "Global time consumption tracker with context manager API."
 requires-python = ">=3.8"
 authors = [{ name = "Hyeonjae Gil" }]
 
-dependencies = []
+dependencies = ["loguru>=0.7"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

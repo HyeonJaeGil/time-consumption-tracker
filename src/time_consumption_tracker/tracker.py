@@ -1,18 +1,13 @@
 # time_consumption_tracker/tracker.py
 from __future__ import annotations
 
-import os
-import sys
 import time
 import threading
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
-from typing import Callable, Dict, List, Optional, Union, IO, Any
+from typing import Dict, List, Optional, Union
 
-
-Sink = Callable[[str], None]
-SinkTarget = Union[str, Path, IO[str], Sink]
+from loguru import Logger, logger as default_logger
 
 
 @dataclass(frozen=True)
@@ -26,40 +21,11 @@ class TaskStats:
     last_s: float
 
 
-class _FileSink:
-    def __init__(self, file_path: Union[str, Path], mode: str = "a", encoding: str = "utf-8") -> None:
-        self.file_path = Path(file_path)
-        self.file_path.parent.mkdir(parents=True, exist_ok=True)
-        self._fh = open(self.file_path, mode=mode, encoding=encoding)
-
-    def __call__(self, message: str) -> None:
-        self._fh.write(message)
-        if not message.endswith("\n"):
-            self._fh.write("\n")
-        self._fh.flush()
-
-    def close(self) -> None:
-        try:
-            self._fh.close()
-        except Exception:
-            pass
-
-
-class _StreamSink:
-    def __init__(self, stream: IO[str]) -> None:
-        self.stream = stream
-
-    def __call__(self, message: str) -> None:
-        self.stream.write(message)
-        if not message.endswith("\n"):
-            self.stream.write("\n")
-        self.stream.flush()
-
-
 class _TaskContext:
-    def __init__(self, tracker: "TimeTracker", task: str) -> None:
+    def __init__(self, tracker: "TimeTracker", task: str, level: Union[str, int]) -> None:
         self._tracker = tracker
         self._task = task
+        self._level = level
         self._t0: Optional[float] = None
 
     def __enter__(self) -> "_TaskContext":
@@ -71,7 +37,7 @@ class _TaskContext:
         t1 = time.perf_counter()
         t0 = self._t0 if self._t0 is not None else t1
         elapsed = max(0.0, t1 - t0)
-        self._tracker._record(self._task, elapsed, exc_type=exc_type)
+        self._tracker._record(self._task, elapsed, level=self._level, exc_type=exc_type)
         return False
 
 
@@ -81,37 +47,33 @@ class TimeTracker:
 
     Key features:
     - Global singleton-like usage via module-level `time_tracker`.
-    - Context manager API: `with time_tracker("TASK")`.
-    - Configurable sinks: console/file/callable, similar to `loguru.logger.add()`.
+    - Context manager API: `with time_tracker("TASK", level="DEBUG")`.
+    - Loguru-backed output: events and summaries are emitted through a configured Logger.
     - Summary output: task-wise total/avg/min/max/count.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, logger: Optional[Logger] = None) -> None:
         self._lock = threading.Lock()
         self._records: Dict[str, List[float]] = {}
-        self._sinks: Dict[int, Sink] = {}
-        self._sink_meta: Dict[int, Dict[str, Any]] = {}
-        self._next_sink_id = 1
+        self._logger: Logger = logger or default_logger
 
         # Behavior knobs
         self._emit_each: bool = False
-        self._emit_each_level: str = "INFO"  # cosmetic
         self._time_unit: str = "ms"          # "s" or "ms"
-        self._autoname_file_if_dir: bool = True
         self._include_timestamp: bool = True
-
-        # Default sink: stdout (like a logger)
-        self.add(sys.stdout)
+        self._summary_level: Union[str, int] = "INFO"
 
     # ---------------------------
-    # Public API (Loguru-ish)
+    # Public API
     # ---------------------------
 
-    def __call__(self, task: str) -> _TaskContext:
-        """Return a context manager for the given task name."""
+    def __call__(self, task: str, *, level: Union[str, int] = "INFO") -> _TaskContext:
+        """Return a context manager for the given task name and log level."""
         if not isinstance(task, str) or not task.strip():
             raise ValueError("task name must be a non-empty string")
-        return _TaskContext(self, task.strip())
+        if not isinstance(level, (str, int)):
+            raise TypeError("level must be a loguru-compatible level (str or int)")
+        return _TaskContext(self, task.strip(), level)
 
     def configure(
         self,
@@ -119,7 +81,7 @@ class TimeTracker:
         emit_each: Optional[bool] = None,
         time_unit: Optional[str] = None,
         include_timestamp: Optional[bool] = None,
-        autoname_file_if_dir: Optional[bool] = None,
+        summary_level: Optional[Union[str, int]] = None,
     ) -> "TimeTracker":
         """
         Configure tracker behavior.
@@ -127,7 +89,7 @@ class TimeTracker:
         - emit_each: if True, emit a log-like line after every `with` block.
         - time_unit: "ms" or "s"
         - include_timestamp: prefix output with timestamp
-        - autoname_file_if_dir: if adding a sink with a directory path, auto-create a file inside it
+        - summary_level: log level used when emitting summary
         """
         with self._lock:
             if emit_each is not None:
@@ -138,82 +100,17 @@ class TimeTracker:
                 self._time_unit = time_unit
             if include_timestamp is not None:
                 self._include_timestamp = bool(include_timestamp)
-            if autoname_file_if_dir is not None:
-                self._autoname_file_if_dir = bool(autoname_file_if_dir)
+            if summary_level is not None:
+                self._summary_level = summary_level
         return self
 
-    def add(self, target: SinkTarget, *, mode: str = "a", encoding: str = "utf-8") -> int:
-        """
-        Add a sink (like loguru.logger.add).
-
-        target can be:
-        - sys.stdout / sys.stderr (stream)
-        - a file path (str/Path), or a directory path (see autoname_file_if_dir)
-        - a callable(message: str) -> None
-        - an open file-like object with .write()
-
-        Returns a sink_id that can be passed to remove().
-        """
-        sink: Sink
-        meta: Dict[str, Any] = {}
-
-        if callable(target) and not hasattr(target, "write"):
-            sink = target  # already a Sink callable
-            meta["type"] = "callable"
-            meta["target"] = repr(target)
-        elif hasattr(target, "write"):
-            sink = _StreamSink(target)  # type: ignore[arg-type]
-            meta["type"] = "stream"
-            meta["target"] = getattr(target, "name", repr(target))
-        else:
-            # str/Path -> file or directory
-            p = Path(target)  # type: ignore[arg-type]
-            if p.exists() and p.is_dir():
-                if not self._autoname_file_if_dir:
-                    raise ValueError(
-                        f"'{p}' is a directory. Either pass a file path or set autoname_file_if_dir=True."
-                    )
-                filename = f"time_tracker_{datetime.now().strftime('%Y%m%d')}.log"
-                p = p / filename
-            elif str(p).endswith(os.sep) or (not p.suffix and self._autoname_file_if_dir):
-                # Heuristic: treat as directory-ish
-                p.mkdir(parents=True, exist_ok=True)
-                filename = f"time_tracker_{datetime.now().strftime('%Y%m%d')}.log"
-                p = p / filename
-
-            file_sink = _FileSink(p, mode=mode, encoding=encoding)
-            sink = file_sink
-            meta["type"] = "file"
-            meta["path"] = str(p)
-            meta["closer"] = file_sink.close
-
+    def use_logger(self, logger: Logger) -> "TimeTracker":
+        """Replace the underlying Loguru logger instance."""
+        if not isinstance(logger, Logger):
+            raise TypeError("logger must be a loguru.Logger instance")
         with self._lock:
-            sink_id = self._next_sink_id
-            self._next_sink_id += 1
-            self._sinks[sink_id] = sink
-            self._sink_meta[sink_id] = meta
-        return sink_id
-
-    def remove(self, sink_id: Optional[int] = None) -> None:
-        """
-        Remove a sink (like loguru.logger.remove).
-        - If sink_id is None, remove all sinks.
-        """
-        with self._lock:
-            if sink_id is None:
-                ids = list(self._sinks.keys())
-            else:
-                ids = [sink_id]
-
-            for sid in ids:
-                sink = self._sinks.pop(sid, None)
-                meta = self._sink_meta.pop(sid, None) or {}
-                closer = meta.get("closer")
-                if callable(closer):
-                    try:
-                        closer()
-                    except Exception:
-                        pass
+            self._logger = logger
+        return self
 
     def clear(self) -> None:
         """Clear all recorded task durations."""
@@ -232,7 +129,7 @@ class TimeTracker:
         """
         Generate and emit a summary.
 
-        Returns the rendered summary string (also emitted to sinks).
+        Returns the rendered summary string (also emitted to the configured logger).
         sort_by: "total" | "avg" | "count" | "max" | "min" | "task"
         """
         stats = self._compute_stats()
@@ -254,7 +151,7 @@ class TimeTracker:
 
         rendered = self._render_summary(stats, title=title)
 
-        self._emit(rendered)
+        self._emit(rendered, level=self._summary_level)
 
         if reset:
             self.clear()
@@ -265,26 +162,20 @@ class TimeTracker:
     # Internal: recording + emit
     # ---------------------------
 
-    def _record(self, task: str, elapsed_s: float, exc_type: Optional[type] = None) -> None:
+    def _record(self, task: str, elapsed_s: float, level: Union[str, int], exc_type: Optional[type] = None) -> None:
         with self._lock:
             self._records.setdefault(task, []).append(elapsed_s)
 
         if self._emit_each:
-            msg = self._render_event(task, elapsed_s, exc_type=exc_type)
-            self._emit(msg)
+            msg = self._render_event(task, elapsed_s, level=level, exc_type=exc_type)
+            self._emit(msg, level=level)
 
-    def _emit(self, message: str) -> None:
-        # Copy sinks to avoid holding the lock while writing
-        with self._lock:
-            sinks = list(self._sinks.values())
-
-        # Ensure the message ends with newline (sink wrappers handle it too, but keep consistent)
-        for sink in sinks:
-            try:
-                sink(message)
-            except Exception:
-                # don't let sink failures break the app
-                pass
+    def _emit(self, message: str, *, level: Union[str, int]) -> None:
+        try:
+            self._logger.log(level, message)
+        except Exception:
+            # don't let logging failures break the app
+            pass
 
     # ---------------------------
     # Internal: formatting
@@ -300,10 +191,10 @@ class TimeTracker:
             return ""
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " | "
 
-    def _render_event(self, task: str, elapsed_s: float, exc_type: Optional[type]) -> str:
+    def _render_event(self, task: str, elapsed_s: float, *, level: Union[str, int], exc_type: Optional[type]) -> str:
         ts = self._ts_prefix()
         status = "OK" if exc_type is None else f"EXC:{getattr(exc_type, '__name__', str(exc_type))}"
-        return f"{ts}{self._emit_each_level} | {status} | task={task} | elapsed={self._fmt_time(elapsed_s)}"
+        return f"{ts}{level} | {status} | task={task} | elapsed={self._fmt_time(elapsed_s)}"
 
     def _compute_stats(self) -> List[TaskStats]:
         with self._lock:
@@ -363,4 +254,3 @@ class TimeTracker:
         lines.append("-" * len(header))
         lines.append(f"{'TOTAL (all tasks)':30}  {'':7}  {self._fmt_time(grand_total):>14}")
         return "\n".join(lines)
-
